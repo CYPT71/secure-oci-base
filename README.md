@@ -1,5 +1,8 @@
 # secure-oci-base
 
+[![Regression suite](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-regression-suite.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-regression-suite.yml)
+[![OCI validation](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-oci-validation.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-oci-validation.yml)
+
 `secure-oci-base` is a Go 1.22+ command that turns one static Linux Go executable into an OCI Image Layout. It uses only the Go standard library: no Docker daemon, BuildKit, Podman, CGO, or OCI Go library is involved in layout generation.
 
 ## Architecture and OCI layout
@@ -53,7 +56,7 @@ go tool cover -func=coverage.out
 go vet ./...
 ```
 
-GitHub Actions verifies formatting, vet, normal and race tests, enforces at least 99% statement coverage, builds a static sample, and checks the OCI artifacts. On pushes to `main`, it attempts to publish the layout to `ghcr.io/<owner>/<repository>:latest` using `GITHUB_TOKEN` and `packages:write`. If publishing is unavailable or fails, it uploads the `secure-oci-layout` artifact and reports the publishing outcome.
+GitHub Actions verifies formatting, vet, normal and race tests, enforces at least 85% statement coverage, builds a static sample, and checks the OCI artifacts. On version-tag pushes, the release workflow validates the layout, loads its OCI archive with Docker, and publishes the verified image to `ghcr.io/<owner>/<repository>:<tag>` using `GITHUB_TOKEN` and `packages:write`. It also uploads checksums and traceability evidence.
 
 ### GHCR deployment
 

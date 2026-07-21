@@ -1,0 +1,55 @@
+name: runtime-integration
+
+on: [push, pull_request]
+
+permissions: {contents: read}
+
+jobs:
+  docker-and-kubernetes-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Build an OCI layout for runtime validation
+        env: {CGO_ENABLED: '0', GOOS: linux, GOARCH: amd64, GOTOOLCHAIN: local}
+        run: |
+          set -eu
+          go build -trimpath -buildvcs=true -o oci-builder ./cmd/oci-builder
+          ./oci-builder -binary oci-builder -output oci-image -arch amd64 -created 1970-01-01T00:00:00Z
+          python3 scripts/ci/verify-oci-layout.py oci-image
+      - name: Build and run the layout through an isolated multi-stage Dockerfile
+        run: |
+          set -eu
+          context=$(mktemp -d)
+          trap 'rm -rf "$context"' EXIT
+          cp Dockerfile "$context/Dockerfile"
+          cp -a oci-image "$context/oci-image"
+          docker build --pull=false --tag secure-oci-base:functional "$context"
+          docker run --rm --read-only --cap-drop=ALL --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,noexec,nosuid,size=16m secure-oci-base:functional -h | tee docker-runtime.txt
+          grep -q -- '-binary' docker-runtime.txt
+      - name: Validate the Kubernetes restricted-runtime deployment contract
+        run: |
+          set -eu
+          command -v kubectl
+          cat > deployment.json <<'EOF'
+          {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "metadata": {"name": "secure-oci-base-functional", "labels": {"app": "secure-oci-base"}},
+            "spec": {
+              "replicas": 1,
+              "selector": {"matchLabels": {"app": "secure-oci-base"}},
+              "template": {"metadata": {"labels": {"app": "secure-oci-base"}}, "spec": {
+                "automountServiceAccountToken": false,
+                "containers": [{"name": "service", "image": "secure-oci-base:functional", "imagePullPolicy": "Never",
+                  "securityContext": {"runAsNonRoot": true, "runAsUser": 65532, "allowPrivilegeEscalation": false,
+                    "readOnlyRootFilesystem": true, "capabilities": {"drop": ["ALL"]}},
+                  "resources": {"requests": {"cpu": "10m", "memory": "32Mi"}, "limits": {"cpu": "250m", "memory": "128Mi"}}
+                }]
+              }}
+            }
+          }
+          EOF
+          kubectl create --dry-run=client --validate=false -f deployment.json -o json > kubernetes-contract.json
+          python3 -c 'import json; d=json.load(open("kubernetes-contract.json")); c=d["spec"]["template"]["spec"]["containers"][0]; assert c["securityContext"]["runAsNonRoot"] and c["securityContext"]["readOnlyRootFilesystem"] and c["securityContext"]["capabilities"]["drop"] == ["ALL"]'
