@@ -1,7 +1,15 @@
 # secure-oci-base
 
-[![Regression suite](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-regression-suite.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-regression-suite.yml)
+[![Go quality](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-go-quality.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-go-quality.yml)
 [![OCI validation](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-oci-validation.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-oci-validation.yml)
+[![Pull request policy](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-pull-request.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-pull-request.yml)
+[![Regression suite](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-regression-suite.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-regression-suite.yml)
+[![Reproducibility](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-reproducibility.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-reproducibility.yml)
+[![Runtime integration](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-runtime.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-runtime.yml)
+[![Security analysis](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-security.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-security.yml)
+[![Integration validation](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-test.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-test.yml)
+[![Fuzz validation](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-fuzz.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-fuzz.yml)
+[![Release evidence](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-release.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-release.yml)
 
 `secure-oci-base` is a Go 1.22+ command that turns one static Linux Go executable into an OCI Image Layout. It uses only the Go standard library: no Docker daemon, BuildKit, Podman, CGO, or OCI Go library is involved in layout generation.
 
@@ -45,6 +53,24 @@ Supported architectures are `amd64` and `arm64`; the operating system is `linux`
 
 ## Testing and CI/CD
 
+All CI jobs run on the current GitHub-hosted `ubuntu-latest` image, use
+read-only repository permissions unless publication requires package access,
+and set an explicit job timeout. Actions are pinned by commit SHA and checked
+by the workflow-policy verifier. The badges above show the status of the
+default branch; open a badge to inspect its run logs and downloadable evidence.
+
+| Workflow | Trigger | Validation and evidence |
+| --- | --- | --- |
+| **Go quality** | Push, pull request, weekly schedule | Records the Go environment; checks formatting, `go vet`, tests, native race detection, 85% coverage, and Linux `amd64`/`arm64` compilation. |
+| **OCI validation** | Push and pull request | Builds a deterministic layout, verifies every descriptor/blob/layer, rejects hostile mutations, and uploads validation, checksum, and filesystem evidence. |
+| **Pull-request policy** | Pull request | Rejects unsafe workflow constructs, unpinned actions, forbidden tracked build output, policy markers, and whitespace errors relative to the PR base. |
+| **Regression suite** | Push and pull request | Executes all package, race, explicit CLI/OCI/mTLS, coverage, OCI structural, and hostile-layout regression tests. |
+| **Reproducibility** | Push, pull request, weekly schedule | Builds the executable and OCI layout twice in isolated temporary directories, compares every byte, and uploads SHA-256 evidence. |
+| **Runtime integration** | Push and pull request | Builds the OCI layout through the multi-stage Docker consumer, exercises it under a restricted runtime, and checks the Kubernetes restricted-runtime manifest contract offline. |
+| **Security analysis** | Push, pull request, weekly schedule | Validates workflow pinning/safety, runs `go vet` and race tests, and rejects risky process-execution or insecure-TLS APIs. |
+| **Integration validation** | Main push and main-targeted pull request | Produces both supported Linux architecture binaries and verifies an end-to-end `amd64` layout. |
+| **Fuzz validation** | Pull request and weekly schedule | Runs bounded fuzzing against label parsing and entrypoint validation boundaries. |
+| **Release evidence** | Version-tag push | Verifies the release layout, records checksums and traceability, builds from that verified layout, publishes to GHCR, and retains release evidence for 90 days. |
 
 Run all checks locally:
 
@@ -56,7 +82,7 @@ go tool cover -func=coverage.out
 go vet ./...
 ```
 
-GitHub Actions verifies formatting, vet, normal and race tests, enforces at least 85% statement coverage, builds a static sample, and checks the OCI artifacts. On version-tag pushes, the release workflow validates the layout, loads its OCI archive with Docker, and publishes the verified image to `ghcr.io/<owner>/<repository>:<tag>` using `GITHUB_TOKEN` and `packages:write`. It also uploads checksums and traceability evidence.
+GitHub Actions verifies formatting, vet, normal and race tests, enforces at least 85% statement coverage, builds a static sample, and checks the OCI artifacts. On version-tag pushes, the release workflow validates the layout, builds a Docker image from that verified layout, and publishes it to `ghcr.io/<owner>/<repository>:<tag>` using `GITHUB_TOKEN` and `packages:write`. It also uploads checksums and traceability evidence.
 
 ### GHCR deployment
 
