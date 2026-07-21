@@ -25,6 +25,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	created := fs.String("created", "1970-01-01T00:00:00Z", "RFC3339 creation time")
 	var labels labelFlags
 	fs.Var(&labels, "label", "image label (key=value); repeatable")
+	if len(args) == 0 {
+		fs.SetOutput(stdout)
+		fs.PrintDefaults()
+		return 0
+	}
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}

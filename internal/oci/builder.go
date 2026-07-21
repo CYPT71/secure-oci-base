@@ -10,11 +10,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -145,10 +143,16 @@ func normalize(o *Options) error {
 		return errors.New("binary and output are required")
 	}
 	if o.Architecture == "" {
-		o.Architecture = runtime.GOARCH
+		o.Architecture = "amd64"
+	}
+	if o.Architecture != "amd64" && o.Architecture != "arm64" {
+		return fmt.Errorf("unsupported architecture %q (supported: amd64, arm64)", o.Architecture)
 	}
 	if o.OS == "" {
 		o.OS = "linux"
+	}
+	if o.OS != "linux" {
+		return fmt.Errorf("unsupported operating system %q (supported: linux)", o.OS)
 	}
 	if o.Entrypoint == "" {
 		o.Entrypoint = "/app/service"
@@ -180,14 +184,26 @@ func makeLayer(binary []byte, entrypoint string) ([]byte, string, error) {
 	var raw bytes.Buffer
 	tw := tar.NewWriter(&raw)
 	name := strings.TrimPrefix(entrypoint, "/")
-	parents := strings.Split(path.Dir(name), "/")
+	directories := []string{"app/", "etc/", "etc/ssl/", "etc/ssl/certs/", "tmp/", "var/", "var/tmp/"}
+	parent := path.Dir(name)
 	current := ""
-	for _, parent := range parents {
-		if parent == "." {
+	for _, segment := range strings.Split(parent, "/") {
+		if segment == "." {
 			continue
 		}
-		current += parent + "/"
-		if err := tw.WriteHeader(&tar.Header{Name: current, Typeflag: tar.TypeDir, Mode: 0755, ModTime: time.Unix(0, 0)}); err != nil {
+		current += segment + "/"
+		directories = append(directories, current)
+	}
+	sort.Strings(directories)
+	for i, directory := range directories {
+		if i > 0 && directory == directories[i-1] {
+			continue
+		}
+		mode := int64(0755)
+		if directory == "tmp/" || directory == "var/tmp/" {
+			mode = 01777
+		}
+		if err := tw.WriteHeader(&tar.Header{Name: directory, Typeflag: tar.TypeDir, Mode: mode, ModTime: time.Unix(0, 0)}); err != nil {
 			return nil, "", err
 		}
 	}
@@ -275,6 +291,3 @@ func LabelsFromPairs(pairs []string) (map[string]string, error) {
 	}
 	return labels, nil
 }
-
-// Copy is retained for callers that need a standard-library stream copy.
-func Copy(dst io.Writer, src io.Reader) (int64, error) { return io.Copy(dst, src) }
