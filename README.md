@@ -42,6 +42,7 @@ Supported architectures are `amd64` and `arm64`; the operating system is `linux`
 
 ## Testing and CI/CD
 
+
 Run all checks locally:
 
 ```bash
@@ -65,9 +66,9 @@ Pull the published image with an OCI-capable client or configure your runtime to
 3. Inspect `oci-image/index.json`, then verify blobs: `for f in oci-image/blobs/sha256/*; do test "$(sha256sum "$f" | cut -d' ' -f1)" = "$(basename "$f")"; done`.
 4. Import or copy the layout using an OCI-aware runtime/tool appropriate for your environment.
 
-## Runtime interoperability
+## Dockerfile consumer
 
-The repository deliberately contains no Dockerfile, Containerfile, Compose file, or container build configuration: the production artifact is always the OCI Image Layout. The runtime-validation workflow may create and remove temporary files inside the GitHub Actions runner solely to prove Docker-compatible interoperability. It never changes the production artifact and does not replace runtime read-only-rootfs or no-new-privileges settings.
+`Dockerfile` demonstrates a separate, multi-stage consumer. Its first stage validates `oci-layout`, `index.json`, and blob filenames; its second stage extracts the layer; the final `scratch` stage copies only the extracted root filesystem and declares the numeric non-root user and entrypoint. Put a downloaded/extracted layout at `./oci-image` and run `docker build -t service:local .`. The Dockerfile does not replace runtime read-only-rootfs or no-new-privileges settings.
 
 ## Debugging minimal containers
 
@@ -89,7 +90,3 @@ Within the target namespaces, inspect `/proc/1`, `/proc/1/mountinfo`, `/proc/1/e
 * **Output already exists**: select a new output directory; it is intentionally never overwritten.
 * **Registry publication fails**: use the workflow artifact; confirm repository Actions permissions allow `packages:write` before retrying.
 * This is a single-layer image generator, not a Dockerfile interpreter, registry client, image signer, SBOM generator, or runtime security policy engine. It does not prove that an executable is static; build it using the static command above.
-
-## Compliance evidence
-
-[`COMPLIANCE.md`](COMPLIANCE.md) maps the CI-produced technical evidence to OCI, ISO/IEC 27001/27002, NIST, CIS, OWASP, SLSA, and OpenSSF control areas. It explicitly separates automated controls from manual and organizational responsibilities and does not claim certification.
