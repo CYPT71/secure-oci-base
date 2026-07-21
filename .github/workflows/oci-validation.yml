@@ -1,0 +1,20 @@
+name: oci-validation
+on: [push, pull_request]
+permissions: {contents: read}
+jobs:
+  layout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.22.x'}
+      - name: Generate deterministic static layout
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o service ./cmd/oci-builder
+          go run ./cmd/oci-builder -binary service -output oci-image -arch amd64 -created 1970-01-01T00:00:00Z
+          test -f oci-image/oci-layout && test -f oci-image/index.json
+          test "$(find oci-image/blobs/sha256 -type f | wc -l)" -eq 3
+          sha256sum oci-image/blobs/sha256/* | awk '{n=split($2,a,"/"); if ($1 != a[n]) exit 1}'
+      - name: Archive layout evidence
+        uses: actions/upload-artifact@v4
+        with: {name: oci-layout-and-digest-report, path: 'oci-image'}
