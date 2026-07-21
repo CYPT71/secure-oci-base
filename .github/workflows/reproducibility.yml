@@ -1,0 +1,23 @@
+name: reproducibility
+on:
+  push:
+  pull_request:
+  schedule: [{cron: '23 4 * * 1'}]
+permissions: {contents: read}
+jobs:
+  byte-for-byte-layout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.22.x'}
+      - name: Build identical static inputs twice
+        run: |
+          set -eu
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o service ./cmd/oci-builder
+          go run ./cmd/oci-builder -binary service -output layout-a -arch amd64 -created 1970-01-01T00:00:00Z
+          go run ./cmd/oci-builder -binary service -output layout-b -arch amd64 -created 1970-01-01T00:00:00Z
+          diff -r layout-a layout-b
+          find layout-a -type f -print0 | sort -z | xargs -0 sha256sum | tee reproducibility.sha256
+      - uses: actions/upload-artifact@v4
+        with: {name: reproducibility-evidence, path: reproducibility.sha256}
