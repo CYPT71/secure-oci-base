@@ -1,0 +1,31 @@
+name: oci-validation
+on: [push, pull_request]
+permissions: {contents: read}
+jobs:
+  layout-and-negative-cases:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Build, validate, and emit evidence
+        env: {CGO_ENABLED: '0', GOOS: linux, GOARCH: amd64, GOTOOLCHAIN: local}
+        run: |
+          set -eu
+          go build -trimpath -buildvcs=true -o service ./cmd/oci-builder
+          go run ./cmd/oci-builder -binary service -output oci-image -arch amd64 -created 1970-01-01T00:00:00Z
+          python3 scripts/ci/verify-oci-layout.py oci-image | tee oci-validation.txt
+          sha256sum oci-image/blobs/sha256/* | sort | tee oci-blobs.sha256
+          find oci-image -printf '%m %s %p\n' | LC_ALL=C sort | tee oci-filesystem.txt
+      - name: Prove hostile OCI layouts are rejected
+        run: |
+          set -eu
+          python3 scripts/ci/negative-oci-layout.py scripts/ci/verify-oci-layout.py oci-image | tee oci-negative.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: oci-validation-evidence
+          path: |
+            oci-*.txt
+            oci-*.sha256
+          if-no-files-found: error
+          retention-days: 14
