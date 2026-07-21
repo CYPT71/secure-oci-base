@@ -1,0 +1,7 @@
+github.com/CYPT71/secure-oci-base/cmd/oci-builder/main.go:6:	Run		100.0%
+github.com/CYPT71/secure-oci-base/cmd/oci-builder/main.go:12:	main		0.0%
+github.com/CYPT71/secure-oci-base/internal/mtls/config.go:10:	New		100.0%
+github.com/CYPT71/secure-oci-base/internal/mtls/config.go:15:	Valid		100.0%
+github.com/CYPT71/secure-oci-base/internal/oci/builder.go:9:	NewBuilder	100.0%
+github.com/CYPT71/secure-oci-base/internal/oci/builder.go:14:	Build		100.0%
+total:								(statements)	92.3%

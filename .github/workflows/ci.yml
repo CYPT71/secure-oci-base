@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ${{ github.workspace }}/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Install tooling
+        run: |
+          go install golang.org/x/tools/cmd/goimports@latest
+
+      - name: Run go fmt check
+        run: |
+          diff=$(gofmt -l .) || true
+          if [ -n "$diff" ]; then echo "gofmt needs to be run on:"; echo "$diff"; exit 1; fi
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run tests with coverage
+        run: |
+          go test -coverprofile=coverage.out ./...
+
+      - name: Enforce coverage >= 90%
+        run: |
+          go tool cover -func=coverage.out | tee coverage.txt
+          pct=$(awk '/total:/ {gsub("%","",$3); print $3}' coverage.txt)
+          echo "Coverage percent: $pct"
+          awk -v p="$pct" 'BEGIN {if (p+0 < 90.0) {print "Coverage below threshold: " p "%"; exit 1} else {print "Coverage threshold met: " p "%"}}'
+      - name: Build static binary
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o oci-builder ./cmd/oci-builder
+
+      - name: Create transient Containerfile
+        run: |
+          cat > Containerfile <<'EOF'
+          FROM gcr.io/distroless/static-debian11
+          COPY oci-builder /oci-builder
+          ENTRYPOINT ["/oci-builder"]
+          EOF
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image with buildx
+        id: buildx
+        continue-on-error: true
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: Containerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/secure-oci-base:latest
+
+      - name: Fallback: save image and upload artifact
+        if: steps.buildx.outcome != 'success'
+        run: |
+          # attempt to build and save locally
+          docker build -f Containerfile -t temp-image:latest .
+          docker save temp-image:latest -o image.tar
+
+      - name: Upload image artifact
+        if: steps.buildx.outcome != 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image-tar
+          path: image.tar
