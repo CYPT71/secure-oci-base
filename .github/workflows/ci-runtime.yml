@@ -25,8 +25,19 @@ jobs:
           cp Dockerfile "$context/Dockerfile"
           cp -a oci-image "$context/oci-image"
           docker build --pull=false --tag secure-oci-base:functional "$context"
-          docker run --rm --read-only --cap-drop=ALL --security-opt no-new-privileges \
-            --tmpfs /tmp:rw,noexec,nosuid,size=16m secure-oci-base:functional -h | tee docker-runtime.txt
+          # The CLI deliberately returns 2 for flag-help (flag.ErrHelp).  A
+          # successful container execution therefore has an expected non-zero
+          # status; capture it explicitly instead of letting `set -e` treat it
+          # as a runtime failure.
+          if docker run --rm --read-only --cap-drop=ALL --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,noexec,nosuid,size=16m secure-oci-base:functional -h > docker-runtime.txt 2>&1; then
+            echo 'expected oci-builder -h to exit with status 2' >&2
+            exit 1
+          else
+            status=$?
+            test "$status" -eq 2
+          fi
+          cat docker-runtime.txt
           grep -q -- '-binary' docker-runtime.txt
       - name: Validate the Kubernetes restricted-runtime deployment contract
         run: |
