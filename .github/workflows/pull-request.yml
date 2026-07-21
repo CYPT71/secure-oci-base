@@ -1,0 +1,13 @@
+name: pull-request-policy
+on: [pull_request]
+permissions: {contents: read}
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce repository policy
+        run: |
+          test -z "$(find . -maxdepth 1 -iname '*dockerfile*' -o -name 'Containerfile' -o -name 'compose.yaml' -o -name 'docker-compose.yml')"
+          test -z "$(git ls-files | grep -E '(^|/)(coverage\.out|coverage\.txt|oci-image|oci-builder|service)$' || true)"
+          test -z "$(rg -n --glob '!README.md' 'TODO|FIXME|placeholder' . || true)"
