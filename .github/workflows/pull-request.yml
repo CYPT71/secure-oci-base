@@ -3,11 +3,14 @@ on: [pull_request]
 permissions: {contents: read}
 jobs:
   policy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - name: Enforce repository policy
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Enforce repository and workflow policy
         run: |
-          test -z "$(find . -maxdepth 1 -iname '*dockerfile*' -o -name 'Containerfile' -o -name 'compose.yaml' -o -name 'docker-compose.yml')"
-          test -z "$(git ls-files | grep -E '(^|/)(coverage\.out|coverage\.txt|oci-image|oci-builder|service)$' || true)"
+          set -eu
+          python3 scripts/ci/verify-workflows.py
+          test -z "$(git ls-files | rg '(^|/)(coverage\.out|coverage\.txt|oci-image|oci-builder|service)$' || true)"
           test -z "$(rg -n --glob '!README.md' 'TODO|FIXME|placeholder' . || true)"
+          git diff --check "${{ github.event.pull_request.base.sha }}" HEAD

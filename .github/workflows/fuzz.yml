@@ -5,12 +5,13 @@ on:
 permissions: {contents: read}
 jobs:
   bounded-fuzzing:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with: {go-version: '1.22.x'}
-      - name: Fuzz parser and validation entry points
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Fuzz parser and validation boundaries
+        env: {GOTOOLCHAIN: local}
         run: |
-          go test ./internal/oci -fuzz=FuzzLabelsFromPairs -fuzztime=30s
-          go test ./internal/oci -fuzz=FuzzEntrypointValidation -fuzztime=30s
+          set -eu
+          go test ./internal/oci -fuzz=FuzzLabelsFromPairs -fuzztime=60s
+          go test ./internal/oci -fuzz=FuzzEntrypointValidation -fuzztime=60s

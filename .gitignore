@@ -3,3 +3,4 @@
 /oci-builder
 /oci-image/
 /service
+/scripts/ci/__pycache__/

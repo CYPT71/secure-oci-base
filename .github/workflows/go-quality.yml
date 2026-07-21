@@ -1,25 +1,48 @@
 name: go-quality
-on: [push, pull_request]
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '13 3 * * 1'
+
 permissions: {contents: read}
+
 jobs:
   quality:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [amd64, arm64]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with: {go-version: '1.22.x'}
-      - name: Format report
-        run: test -z "$(gofmt -l cmd internal)"
-      - name: Compile and vet
-        run: go vet ./... && go build ./...
-      - name: Unit and race tests
-        run: go test ./... && go test -race ./...
-      - name: Coverage report and gate
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Record hermetic toolchain identity
         run: |
+          set -eu
+          go version
+          go env GOROOT GOVERSION GOOS GOARCH GOTOOLCHAIN
+          test "$(go env GOTOOLCHAIN)" = local
+      - name: Format, vet, and test
+        env: {GOTOOLCHAIN: local}
+        run: |
+          set -eu
+          test -z "$(find cmd internal -type f -name '*.go' -print0 | xargs -0 gofmt -l)"
+          go vet ./...
+          go test ./...
+      - name: Cross-compile the selected supported target
+        env: {CGO_ENABLED: '0', GOOS: linux, GOARCH: '${{ matrix.target }}', GOTOOLCHAIN: local}
+        run: |
+          set -eu
+          go build -trimpath -buildvcs=true ./...
+      - name: Race and coverage gate on native target
+        if: matrix.target == 'amd64'
+        env: {GOTOOLCHAIN: local}
+        run: |
+          set -eu
+          go test -race ./...
           go test ./... -coverprofile=coverage.out
           go tool cover -func=coverage.out | tee coverage.txt
           coverage=$(awk '/^total:/ {sub(/%/, "", $3); print $3}' coverage.txt)
-          awk -v coverage="$coverage" 'BEGIN {if (coverage < 99) exit 1}'
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with: {name: go-quality-reports, path: 'coverage.*', if-no-files-found: warn}
+          awk -v coverage="$coverage" 'BEGIN {exit !(coverage >= 99)}'

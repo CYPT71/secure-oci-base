@@ -1,30 +1,30 @@
-name: release-publication
+name: release-evidence
 on:
   push:
     tags: ['v*']
-permissions: {contents: read, packages: write, attestations: write, id-token: write}
+permissions: {contents: read}
 jobs:
-  publish:
-    runs-on: ubuntu-latest
+  release-candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with: {go-version: '1.22.x'}
-      - uses: oras-project/setup-oras@v1
-      - name: Build one signed release candidate layout
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Create independently verifiable release evidence
+        env: {CGO_ENABLED: '0', GOOS: linux, GOARCH: amd64, GOTOOLCHAIN: local}
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o service ./cmd/oci-builder
-          go run ./cmd/oci-builder -binary service -output oci-image -arch amd64
-          sha256sum oci-image/blobs/sha256/* > checksums.sha256
-      - name: Publish to GHCR
-        id: publish
-        continue-on-error: true
-        env: {ORAS_USERNAME: '${{ github.actor }}', ORAS_PASSWORD: '${{ secrets.GITHUB_TOKEN }}'}
-        run: echo "$ORAS_PASSWORD" | oras login ghcr.io -u "$ORAS_USERNAME" --password-stdin && oras cp --from-oci-layout ./oci-image:secure-oci-base:latest ghcr.io/${{ github.repository }}:${{ github.ref_name }}
-      - uses: actions/upload-artifact@v4
-        if: always()
+          set -eu
+          go build -trimpath -buildvcs=true -o oci-builder ./cmd/oci-builder
+          ./oci-builder -binary oci-builder -output oci-image -arch amd64 -created 1970-01-01T00:00:00Z
+          python3 scripts/ci/verify-oci-layout.py oci-image | tee release-validation.txt
+          sha256sum oci-builder oci-image/blobs/sha256/* | sort > checksums.sha256
+          printf 'revision=%s\nrun=%s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > traceability.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-oci-evidence
           path: |
             oci-image
             checksums.sha256
+            release-validation.txt
+            traceability.txt
+          if-no-files-found: error
+          retention-days: 90
