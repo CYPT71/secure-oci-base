@@ -31,19 +31,14 @@ jobs:
           go tool cover -func=coverage.out | tee coverage.txt
           coverage=$(awk '/^total:/ {sub(/%/, "", $3); print $3}' coverage.txt)
           awk -v coverage="$coverage" 'BEGIN {exit !(coverage >= 85)}'
-      - name: Re-run OCI structural and corruption regressions
+      - name: Re-run OCI structural and hostile-layout regressions
         env: {CGO_ENABLED: '0', GOOS: linux, GOARCH: amd64, GOTOOLCHAIN: local}
         run: |
           set -eu
           go build -trimpath -buildvcs=true -o oci-builder ./cmd/oci-builder
           ./oci-builder -binary oci-builder -output oci-image -arch amd64 -created 1970-01-01T00:00:00Z
           python3 scripts/ci/verify-oci-layout.py oci-image
-          blob=$(find oci-image/blobs/sha256 -type f | head -n 1)
-          printf x >> "$blob"
-          if python3 scripts/ci/verify-oci-layout.py oci-image; then
-            echo 'corrupted OCI layout was accepted' >&2
-            exit 1
-          fi
+          python3 scripts/ci/negative-oci-layout.py scripts/ci/verify-oci-layout.py oci-image
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:

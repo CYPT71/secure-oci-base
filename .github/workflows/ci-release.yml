@@ -18,7 +18,7 @@ jobs:
           python3 scripts/ci/verify-oci-layout.py oci-image | tee release-validation.txt
           sha256sum oci-builder oci-image/blobs/sha256/* | sort > checksums.sha256
           printf 'revision=%s\nrun=%s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > traceability.txt
-      - name: Publish the verified OCI layout to GHCR
+      - name: Publish an image built from the verified OCI layout to GHCR
         env:
           REGISTRY: ghcr.io
           IMAGE: ghcr.io/${{ github.repository }}
@@ -26,10 +26,8 @@ jobs:
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -eu
-          tar -C oci-image -cf oci-image.tar .
           echo "$REGISTRY_TOKEN" | docker login "$REGISTRY" --username "${{ github.actor }}" --password-stdin
-          docker load --input oci-image.tar
-          docker tag secure-oci-base:latest "$IMAGE:$TAG"
+          docker build --pull=false --tag "$IMAGE:$TAG" .
           docker push "$IMAGE:$TAG"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
