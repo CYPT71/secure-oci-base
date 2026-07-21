@@ -1,0 +1,21 @@
+name: security-analysis
+on:
+  push:
+  pull_request:
+  schedule: [{cron: '17 3 * * 1'}]
+permissions: {contents: read}
+jobs:
+  zero-trust-static-analysis:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Validate workflow supply-chain controls
+        run: python3 scripts/ci/verify-workflows.py
+      - name: Static analysis and security regression tests
+        env: {GOTOOLCHAIN: local}
+        run: |
+          set -eu
+          go vet ./...
+          go test -race ./...
+          test -z "$(rg -n --glob '*.go' 'os/exec|exec\.Command|InsecureSkipVerify' . || true)"
