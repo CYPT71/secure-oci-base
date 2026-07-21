@@ -39,7 +39,7 @@ jobs:
           fi
           cat docker-runtime.txt
           grep -q -- '-binary' docker-runtime.txt
-      - name: Validate the Kubernetes restricted-runtime deployment contract
+      - name: Validate the Kubernetes restricted-runtime manifest contract
         run: |
           set -eu
           command -v kubectl
@@ -62,5 +62,9 @@ jobs:
             }
           }
           EOF
-          kubectl create --dry-run=client --validate=false -f deployment.json -o json > kubernetes-contract.json
-          python3 -c 'import json; d=json.load(open("kubernetes-contract.json")); c=d["spec"]["template"]["spec"]["containers"][0]; assert c["securityContext"]["runAsNonRoot"] and c["securityContext"]["readOnlyRootFilesystem"] and c["securityContext"]["capabilities"]["drop"] == ["ALL"]'
+          # `kubectl create -f` still performs API discovery, even with
+          # --dry-run=client and --validate=false.  Hosted runners do not have
+          # a Kubernetes API server, so validate the portable manifest
+          # contract locally instead of making a localhost API request.
+          kubectl version --client --output=yaml > kubectl-client-version.yaml
+          python3 -c 'import json; d=json.load(open("deployment.json")); p=d["spec"]["template"]["spec"]; c=p["containers"][0]; assert d["apiVersion"] == "apps/v1" and d["kind"] == "Deployment"; assert p["automountServiceAccountToken"] is False; assert c["imagePullPolicy"] == "Never"; s=c["securityContext"]; assert s["runAsNonRoot"] and s["runAsUser"] == 65532 and not s["allowPrivilegeEscalation"] and s["readOnlyRootFilesystem"] and s["capabilities"]["drop"] == ["ALL"]; assert c["resources"]["requests"] and c["resources"]["limits"]'
