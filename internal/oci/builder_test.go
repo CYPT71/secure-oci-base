@@ -162,6 +162,24 @@ func TestLabelsFromPairs(t *testing.T) {
 	}
 }
 
+func FuzzLabelsFromPairs(f *testing.F) {
+	f.Add("security.tls.minimum=1.2")
+	f.Add("invalid")
+	f.Fuzz(func(t *testing.T, value string) {
+		_, _ = LabelsFromPairs([]string{value})
+	})
+}
+
+func FuzzEntrypointValidation(f *testing.F) {
+	f.Add("/app/service")
+	f.Add("../../escape")
+	f.Fuzz(func(t *testing.T, entrypoint string) {
+		dir := t.TempDir()
+		options := Options{Binary: "service", Output: filepath.Join(dir, "image"), Entrypoint: entrypoint}
+		_ = normalize(&options)
+	})
+}
+
 func TestWriteLayoutErrors(t *testing.T) {
 	if err := writeLayout("/dev/null", []byte("{}"), nil); err == nil {
 		t.Fatal("invalid root accepted")

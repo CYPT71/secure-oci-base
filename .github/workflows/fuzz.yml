@@ -1,0 +1,16 @@
+name: fuzz-validation
+on:
+  pull_request:
+  schedule: [{cron: '41 4 * * 6'}]
+permissions: {contents: read}
+jobs:
+  bounded-fuzzing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.22.x'}
+      - name: Fuzz parser and validation entry points
+        run: |
+          go test ./internal/oci -fuzz=FuzzLabelsFromPairs -fuzztime=30s
+          go test ./internal/oci -fuzz=FuzzEntrypointValidation -fuzztime=30s
