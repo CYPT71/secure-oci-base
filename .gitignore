@@ -1,0 +1,4 @@
+/oci-image/
+/service
+*.test
+coverage.out
