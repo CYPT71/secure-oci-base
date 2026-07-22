@@ -8,7 +8,7 @@ jobs:
     steps:
       # The policy compares against the PR base SHA; the checkout default of
       # fetch-depth: 1 does not guarantee that object is available.
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {fetch-depth: 0}
       - name: Enforce repository and workflow policy
         run: |

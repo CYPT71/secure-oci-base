@@ -8,9 +8,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install the pinned Go toolchain
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with: {go-version: '1.25.8'}
       - name: Create independently verifiable release evidence
         env: {GOTOOLCHAIN: local}
@@ -22,7 +22,7 @@ jobs:
       # The Docker daemon's default driver cannot export SBOM/provenance
       # attestations. Create an isolated BuildKit container driver before build.
       - name: Set up an attestation-capable BuildKit builder
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
         with: {driver: docker-container}
       - name: Publish SBOM and provenance-attested image to GHCR
         env:
@@ -69,7 +69,7 @@ jobs:
             --title "Main merge $RELEASE_TAG" \
             --notes "Automated release for $GITHUB_SHA. Load the attached Docker image with \`docker load --input secure-oci-base-image.tar\`. Validation reports and the verified OCI layout are in secure-oci-base-reports.zip." \
             secure-oci-base-image.tar secure-oci-base-reports.zip
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-oci-evidence
           path: |
