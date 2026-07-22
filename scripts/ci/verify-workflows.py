@@ -19,7 +19,7 @@ for workflow in sorted(root.glob("*.y*ml")):
             # in their supported major channel. They install the pinned Go SDK,
             # GitHub-maintained CodeQL bundle, and Cosign verifier respectively.
             elif re.fullmatch(
-                r"(?:actions/setup-go@v5|github/codeql-action/(init|autobuild|analyze)@v4|sigstore/cosign-installer@v3)",
+                r"(?:actions/setup-go@v5|docker/setup-buildx-action@v3|github/codeql-action/(init|autobuild|analyze)@v4|sigstore/cosign-installer@v3)",
                 value,
             ):
                 continue

@@ -12,7 +12,7 @@
 [![Fuzz validation](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-fuzz.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-fuzz.yml)
 [![Release evidence](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-release.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-release.yml)
 
-`secure-oci-base` is a Go 1.24.3 command that turns one static Linux Go executable into an OCI Image Layout. It uses only the Go standard library: no Docker daemon, BuildKit, Podman, CGO, or OCI Go library is involved in layout generation.
+`secure-oci-base` is a Go 1.25.8 command that turns one static Linux Go executable into an OCI Image Layout. It uses only the Go standard library: no Docker daemon, BuildKit, Podman, CGO, or OCI Go library is involved in layout generation.
 
 ## Architecture and OCI layout
 
