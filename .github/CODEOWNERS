@@ -1,0 +1,5 @@
+# Changes to CI, OCI validation, and OCI implementation require platform review.
+/.github/workflows/ @CYPT71
+/scripts/ci/ @CYPT71
+/internal/oci/ @CYPT71
+/cmd/oci-builder/ @CYPT71

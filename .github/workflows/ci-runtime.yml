@@ -1,0 +1,103 @@
+name: runtime-integration
+
+on: [push, pull_request]
+
+permissions: {contents: read}
+
+jobs:
+  docker-and-kubernetes-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install the pinned Go toolchain
+        uses: actions/setup-go@v5
+        with: {go-version: '1.25.8'}
+      - name: Generate an HTTP API and build its OCI layout
+        env: {GOTOOLCHAIN: local, CGO_ENABLED: '0', GOOS: linux, GOARCH: amd64}
+        run: |
+          set -euo pipefail
+          workdir=$(mktemp -d "${RUNNER_TEMP:-/tmp}/oci-runtime.XXXXXX")
+          trap 'rm -rf "$workdir"' EXIT
+          mkdir -p "$workdir/api"
+          cat > "$workdir/api/main.go" <<'EOF'
+          package main
+
+          import (
+              "net/http"
+          )
+
+          func main() {
+              mux := http.NewServeMux()
+              mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+                  _, _ = w.Write([]byte("PONG\n"))
+              })
+              mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+                  _, _ = w.Write([]byte("HELLO WORLD\n"))
+              })
+              if err := http.ListenAndServe(":8080", mux); err != nil {
+                  panic(err)
+              }
+          }
+          EOF
+          go build -trimpath -buildvcs=true -o "$workdir/oci-builder" ./cmd/oci-builder
+          go build -trimpath -o "$workdir/service" "$workdir/api/main.go"
+          "$workdir/oci-builder" -binary "$workdir/service" -output oci-image -arch amd64 \
+            -created 1970-01-01T00:00:00Z
+          python3 scripts/ci/verify-oci-layout.py oci-image
+      - name: Run generated HTTP API through the Docker image
+        run: |
+          set -euo pipefail
+          context=$(mktemp -d "${RUNNER_TEMP:-/tmp}/oci-docker-context.XXXXXX")
+          container=''
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true; rm -rf "$context"' EXIT
+          cp Dockerfile "$context/Dockerfile"
+          cp -a oci-image "$context/oci-image"
+          docker build --pull=false --tag secure-oci-base:functional "$context"
+          container=$(docker run --detach --read-only --cap-drop=ALL --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,noexec,nosuid,size=16m --publish 127.0.0.1::8080 \
+            secure-oci-base:functional)
+          port=$(docker port "$container" 8080/tcp | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p')
+          test -n "$port"
+          ready=false
+          for attempt in $(seq 1 20); do
+            if test "$(curl --fail --silent --show-error "http://127.0.0.1:$port/healthz" 2>/dev/null || true)" = PONG; then
+              ready=true
+              break
+            fi
+            sleep 0.25
+          done
+          test "$ready" = true
+          response=$(curl --fail --silent --show-error "http://127.0.0.1:$port/")
+          test "$response" = 'HELLO WORLD'
+          printf 'HTTP_API_VALIDATION_OK port=%s response=%s\n' "$port" "$response"
+      - name: Validate the Kubernetes restricted-runtime manifest contract
+        run: |
+          set -euo pipefail
+          command -v kubectl
+          cat > deployment.json <<'EOF'
+          {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "metadata": {"name": "secure-oci-base-functional", "labels": {"app": "secure-oci-base"}},
+            "spec": {
+              "replicas": 1,
+              "selector": {"matchLabels": {"app": "secure-oci-base"}},
+              "template": {"metadata": {"labels": {"app": "secure-oci-base"}}, "spec": {
+                "automountServiceAccountToken": false,
+                "securityContext": {"seccompProfile": {"type": "RuntimeDefault"}},
+                "containers": [{"name": "service", "image": "secure-oci-base:functional", "imagePullPolicy": "Never",
+                  "securityContext": {"runAsNonRoot": true, "runAsUser": 65532, "allowPrivilegeEscalation": false,
+                    "readOnlyRootFilesystem": true, "capabilities": {"drop": ["ALL"]}},
+                  "resources": {"requests": {"cpu": "10m", "memory": "32Mi"}, "limits": {"cpu": "250m", "memory": "128Mi"}}
+                }]
+              }}
+            }
+          }
+          EOF
+          # `kubectl create -f` still performs API discovery, even with
+          # --dry-run=client and --validate=false.  Hosted runners do not have
+          # a Kubernetes API server, so validate the portable manifest
+          # contract locally instead of making a localhost API request.
+          kubectl version --client --output=yaml > kubectl-client-version.yaml
+          python3 -c 'import json; d=json.load(open("deployment.json")); p=d["spec"]["template"]["spec"]; c=p["containers"][0]; assert d["apiVersion"] == "apps/v1" and d["kind"] == "Deployment"; assert p["automountServiceAccountToken"] is False; assert p["securityContext"]["seccompProfile"]["type"] == "RuntimeDefault"; assert c["imagePullPolicy"] == "Never"; s=c["securityContext"]; assert s["runAsNonRoot"] and s["runAsUser"] == 65532 and not s["allowPrivilegeEscalation"] and s["readOnlyRootFilesystem"] and s["capabilities"]["drop"] == ["ALL"]; assert c["resources"]["requests"] and c["resources"]["limits"]'
