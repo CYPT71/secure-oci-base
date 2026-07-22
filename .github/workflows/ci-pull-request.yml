@@ -1,0 +1,19 @@
+name: pull-request-policy
+on: [pull_request]
+permissions: {contents: read}
+jobs:
+  policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # The policy compares against the PR base SHA; the checkout default of
+      # fetch-depth: 1 does not guarantee that object is available.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: {fetch-depth: 0}
+      - name: Enforce repository and workflow policy
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/verify-workflows.py
+          test -z "$(git ls-files | grep -E '(^|/)(coverage\.out|coverage\.txt|oci-image|oci-builder|service)$' || true)"
+          test -z "$(grep -RInE --exclude=README.md --exclude-dir=.git --exclude-dir=.github 'TODO|FIXME|placeholder' . || true)"
+          git diff --check "${{ github.event.pull_request.base.sha }}" HEAD
