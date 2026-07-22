@@ -78,7 +78,7 @@ default branch; open a badge to inspect its run logs and downloadable evidence.
 | **CodeQL analysis** | Push, pull request, weekly schedule | Uses GitHub's maintained CodeQL bundle to build and analyze Go, then uploads results to the repository security dashboard. |
 | **Integration validation** | Main push and main-targeted pull request | Produces both supported Linux architecture binaries and verifies an end-to-end `amd64` layout. |
 | **Fuzz validation** | Pull request and weekly schedule | Runs bounded fuzzing against label parsing and entrypoint validation boundaries. |
-| **Release evidence** | Push to `main` (including merges) | Verifies the layout, publishes a BuildKit SBOM/provenance-attested GHCR image, signs it keylessly with GitHub OIDC, and attaches a Docker-loadable tarball plus a reports ZIP. |
+| **Release evidence** | Semantic version tag (`vMAJOR.MINOR.PATCH`) | Separates validated-layout build, protected-environment publication, digest signing, and GitHub release creation; publishes BuildKit SBOM/provenance evidence and attaches a Docker-loadable tarball plus reports ZIP. |
 
 Run all checks locally:
 
@@ -90,18 +90,18 @@ go tool cover -func=coverage.out
 go vet ./...
 ```
 
-GitHub Actions verifies formatting, vet, normal and race tests, enforces at least 85% statement coverage, builds a static sample, and checks the OCI artifacts. Before any layout is generated, CI verifies the executable is an ELF64 binary for the requested architecture and rejects binaries with a `PT_INTERP` program header (dynamic linking). Every push to `main`, including a merged pull request, creates a GitHub release named `main-<run-number>`. It attaches `secure-oci-base-image.tar`, which can be loaded with `docker load --input secure-oci-base-image.tar`, and `secure-oci-base-reports.zip`, which contains checksums, traceability, validation output, and the verified OCI layout. The workflow also publishes the image to `ghcr.io/<owner>/<repository>:main-<run-number>` using `GITHUB_TOKEN` with `packages:write`.
+GitHub Actions verifies formatting, vet, normal and race tests, enforces at least 85% statement coverage, builds a static sample, and checks the OCI artifacts. Before any layout is generated, CI verifies the executable is an ELF64 binary for the requested architecture and rejects binaries with a `PT_INTERP` program header (dynamic linking). Pushing a semantic version tag (`vMAJOR.MINOR.PATCH`) creates the protected release after layout validation, publication, and digest-signature gates succeed. It attaches `secure-oci-base-image.tar`, which can be loaded with `docker load --input secure-oci-base-image.tar`, and `secure-oci-base-reports.zip`, which contains checksums, traceability, validation output, and the verified OCI layout. The workflow also publishes the image to `ghcr.io/<owner>/<repository>@sha256:<digest>` using `GITHUB_TOKEN` with `packages:write`.
 
 ### GHCR deployment
 
-Pull the published image with an OCI-capable client or configure your runtime to use `ghcr.io/<owner>/<repository>:main-<run-number>`. Ensure the deployment supplies the runtime hardening options described above.
+Pull the published image with an OCI-capable client or configure your runtime to use `ghcr.io/<owner>/<repository>@sha256:<digest>`. Ensure the deployment supplies the runtime hardening options described above.
 
 ### Artifact deployment
 
-1. Open the release created for the `main` merge and download `secure-oci-base-image.tar` and `secure-oci-base-reports.zip`.
-2. Load the ready-to-run image: `docker load --input secure-oci-base-image.tar`.
+1. Open the release created for the semantic version tag and download `secure-oci-base-image.tar` and `secure-oci-base-reports.zip`.
+2. Verify `image-tar.sha256`, then load the ready-to-run image: `sha256sum --check image-tar.sha256 && docker load --input secure-oci-base-image.tar`.
 3. Extract the evidence bundle: `unzip secure-oci-base-reports.zip -d release-reports`.
-4. Inspect `release-reports/checksums.sha256` and `release-reports/release-validation.txt`; the verified OCI layout is at `release-reports/oci-image`.
+4. Inspect `release-reports/publication-link.txt`, `signature-verification.json`, `image.digest`, and `verified-layout.tar` to independently link the validated layout to the signed published image digest.
 
 ## Dockerfile consumer
 
