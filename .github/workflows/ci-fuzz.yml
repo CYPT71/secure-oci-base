@@ -1,0 +1,17 @@
+name: fuzz-validation
+on:
+  pull_request:
+  schedule: [{cron: '41 4 * * 6'}]
+permissions: {contents: read}
+jobs:
+  bounded-fuzzing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Fuzz parser and validation boundaries
+        env: {GOTOOLCHAIN: local}
+        run: |
+          set -euo pipefail
+          go test ./internal/oci -fuzz=FuzzLabelsFromPairs -fuzztime=60s
+          go test ./internal/oci -fuzz=FuzzEntrypointValidation -fuzztime=60s

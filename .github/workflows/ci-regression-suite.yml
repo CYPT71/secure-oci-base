@@ -1,0 +1,50 @@
+name: regression-suite
+
+on: [push, pull_request]
+
+permissions: {contents: read}
+
+jobs:
+  legacy-test-coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Run every package test
+        env: {GOTOOLCHAIN: local}
+        run: |
+          set -euo pipefail
+          go test ./...
+          go test -race ./...
+      - name: Run explicit CLI, OCI, and mTLS regression tests
+        env: {GOTOOLCHAIN: local}
+        run: |
+          set -euo pipefail
+          go test ./cmd/oci-builder -run 'TestRunWithoutArgumentsShowsUsage|TestRunArgumentErrors|TestRunBuildsLayout'
+          go test ./internal/oci -run 'TestBuildWritesValidLayout|TestBuildRejectsUnsafeInputs|TestBuildErrors|TestNormalizeValidation|TestWriteLayoutErrors'
+          go test ./internal/mtls -count=1
+      - name: Measure complete test coverage
+        env: {GOTOOLCHAIN: local}
+        run: |
+          set -euo pipefail
+          go test ./... -coverprofile=coverage.out
+          go tool cover -func=coverage.out | tee coverage.txt
+          coverage=$(awk '/^total:/ {sub(/%/, "", $3); print $3}' coverage.txt)
+          awk -v coverage="$coverage" 'BEGIN {exit !(coverage >= 85)}'
+      - name: Re-run OCI structural and hostile-layout regressions
+        env: {CGO_ENABLED: '0', GOOS: linux, GOARCH: amd64, GOTOOLCHAIN: local}
+        run: |
+          set -euo pipefail
+          go build -trimpath -buildvcs=true -o oci-builder ./cmd/oci-builder
+          ./oci-builder -binary oci-builder -output oci-image -arch amd64 -created 1970-01-01T00:00:00Z
+          python3 scripts/ci/verify-oci-layout.py oci-image
+          python3 scripts/ci/negative-oci-layout.py scripts/ci/verify-oci-layout.py oci-image
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: regression-suite-evidence
+          path: |
+            coverage.out
+            coverage.txt
+          if-no-files-found: warn
+          retention-days: 14
