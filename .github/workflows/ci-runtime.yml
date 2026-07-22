@@ -13,33 +13,64 @@ jobs:
       - name: Install the pinned Go toolchain
         uses: actions/setup-go@v5
         with: {go-version: '1.25.8', check-latest: true}
-      - name: Build an OCI layout for runtime validation
-        env: {GOTOOLCHAIN: local}
+      - name: Generate an HTTP API and build its OCI layout
+        env: {GOTOOLCHAIN: local, CGO_ENABLED: '0', GOOS: linux, GOARCH: amd64}
         run: |
           set -euo pipefail
-          scripts/ci/build-verified-layout.sh oci-image oci-builder amd64
-      - name: Build and run the layout through an isolated multi-stage Dockerfile
+          workdir=$(mktemp -d "${RUNNER_TEMP:-/tmp}/oci-runtime.XXXXXX")
+          trap 'rm -rf "$workdir"' EXIT
+          mkdir -p "$workdir/api"
+          cat > "$workdir/api/main.go" <<'EOF'
+          package main
+
+          import (
+              "net/http"
+          )
+
+          func main() {
+              mux := http.NewServeMux()
+              mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+                  _, _ = w.Write([]byte("PONG\n"))
+              })
+              mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+                  _, _ = w.Write([]byte("HELLO WORLD\n"))
+              })
+              if err := http.ListenAndServe(":8080", mux); err != nil {
+                  panic(err)
+              }
+          }
+          EOF
+          go build -trimpath -buildvcs=true -o "$workdir/oci-builder" ./cmd/oci-builder
+          go build -trimpath -o "$workdir/service" "$workdir/api/main.go"
+          "$workdir/oci-builder" -binary "$workdir/service" -output oci-image -arch amd64 \
+            -created 1970-01-01T00:00:00Z
+          python3 scripts/ci/verify-oci-layout.py oci-image
+      - name: Run generated HTTP API through the Docker image
         run: |
           set -euo pipefail
-          context=$(mktemp -d)
-          trap 'rm -rf "$context"' EXIT
+          context=$(mktemp -d "${RUNNER_TEMP:-/tmp}/oci-docker-context.XXXXXX")
+          container=''
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true; rm -rf "$context"' EXIT
           cp Dockerfile "$context/Dockerfile"
           cp -a oci-image "$context/oci-image"
           docker build --pull=false --tag secure-oci-base:functional "$context"
-          # The CLI deliberately returns 2 for flag-help (flag.ErrHelp).  A
-          # successful container execution therefore has an expected non-zero
-          # status; capture it explicitly instead of letting `set -e` treat it
-          # as a runtime failure.
-          if docker run --rm --read-only --cap-drop=ALL --security-opt no-new-privileges \
-            --tmpfs /tmp:rw,noexec,nosuid,size=16m secure-oci-base:functional -h > docker-runtime.txt 2>&1; then
-            echo 'expected oci-builder -h to exit with status 2' >&2
-            exit 1
-          else
-            status=$?
-            test "$status" -eq 2
-          fi
-          cat docker-runtime.txt
-          grep -q -- '-binary' docker-runtime.txt
+          container=$(docker run --detach --read-only --cap-drop=ALL --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,noexec,nosuid,size=16m --publish 127.0.0.1::8080 \
+            secure-oci-base:functional)
+          port=$(docker port "$container" 8080/tcp | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p')
+          test -n "$port"
+          ready=false
+          for attempt in $(seq 1 20); do
+            if test "$(curl --fail --silent --show-error "http://127.0.0.1:$port/healthz" 2>/dev/null || true)" = PONG; then
+              ready=true
+              break
+            fi
+            sleep 0.25
+          done
+          test "$ready" = true
+          response=$(curl --fail --silent --show-error "http://127.0.0.1:$port/")
+          test "$response" = 'HELLO WORLD'
+          printf 'HTTP_API_VALIDATION_OK port=%s response=%s\n' "$port" "$response"
       - name: Validate the Kubernetes restricted-runtime manifest contract
         run: |
           set -euo pipefail

@@ -27,10 +27,11 @@ jobs:
       - name: Publish SBOM and provenance-attested image to GHCR
         env:
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          IMAGE: ghcr.io/${{ github.repository }}
+          REPOSITORY: ${{ github.repository }}
           TAG: main-${{ github.run_number }}
         run: |
           set -euo pipefail
+          IMAGE="ghcr.io/$(printf '%s' "$REPOSITORY" | tr '[:upper:]' '[:lower:]')"
           echo "$REGISTRY_TOKEN" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
           docker buildx build --pull=false --provenance=mode=max --sbom=true --push --tag "$IMAGE:$TAG" .
           docker pull "$IMAGE:$TAG"
@@ -42,10 +43,11 @@ jobs:
         with: {cosign-release: 'v2.4.1'}
       - name: Sign and verify the published image with GitHub OIDC
         env:
-          IMAGE: ghcr.io/${{ github.repository }}
+          REPOSITORY: ${{ github.repository }}
           TAG: main-${{ github.run_number }}
         run: |
           set -euo pipefail
+          IMAGE="ghcr.io/$(printf '%s' "$REPOSITORY" | tr '[:upper:]' '[:lower:]')"
           command -v cosign
           cosign sign --yes "$IMAGE:$TAG"
           cosign verify --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/ci-release.yml@" --certificate-oidc-issuer https://token.actions.githubusercontent.com "$IMAGE:$TAG" | tee signature-verification.json
