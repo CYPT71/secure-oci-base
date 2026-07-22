@@ -69,7 +69,7 @@ default branch; open a badge to inspect its run logs and downloadable evidence.
 | **Reproducibility** | Push, pull request, weekly schedule | Builds the executable and OCI layout twice in isolated temporary directories, compares every byte, and uploads SHA-256 evidence. |
 | **Runtime integration** | Push and pull request | Builds the OCI layout through the multi-stage Docker consumer, exercises it under a restricted runtime, and checks the Kubernetes restricted-runtime manifest contract offline. |
 | **Security analysis** | Push, pull request, weekly schedule | Validates workflow pinning/safety, runs `go vet`, pinned `govulncheck`, and race tests, and rejects risky process-execution or insecure-TLS APIs. |
-| **CodeQL analysis** | Push, pull request, weekly schedule | Creates a Go CodeQL database, analyzes it with the maintained Go query suite, and uploads SARIF evidence. |
+| **CodeQL analysis** | Push, pull request, weekly schedule | Uses GitHub's maintained CodeQL bundle to build and analyze Go, then uploads results to the repository security dashboard. |
 | **Integration validation** | Main push and main-targeted pull request | Produces both supported Linux architecture binaries and verifies an end-to-end `amd64` layout. |
 | **Fuzz validation** | Pull request and weekly schedule | Runs bounded fuzzing against label parsing and entrypoint validation boundaries. |
 | **Release evidence** | Push to `main` (including merges) | Verifies the layout, publishes a BuildKit SBOM/provenance-attested GHCR image, signs it keylessly with GitHub OIDC, and attaches a Docker-loadable tarball plus a reports ZIP. |
