@@ -70,7 +70,7 @@ default branch; open a badge to inspect its run logs and downloadable evidence.
 | **Security analysis** | Push, pull request, weekly schedule | Validates workflow pinning/safety, runs `go vet` and race tests, and rejects risky process-execution or insecure-TLS APIs. |
 | **Integration validation** | Main push and main-targeted pull request | Produces both supported Linux architecture binaries and verifies an end-to-end `amd64` layout. |
 | **Fuzz validation** | Pull request and weekly schedule | Runs bounded fuzzing against label parsing and entrypoint validation boundaries. |
-| **Release evidence** | Version-tag push | Verifies the release layout, records checksums and traceability, builds from that verified layout, publishes to GHCR, and retains release evidence for 90 days. |
+| **Release evidence** | Push to `main` (including merges) | Verifies the layout, builds and publishes the GHCR image, creates a GitHub release, and attaches a Docker-loadable image tarball plus a ZIP containing reports and the verified OCI layout. |
 
 Run all checks locally:
 
@@ -82,18 +82,18 @@ go tool cover -func=coverage.out
 go vet ./...
 ```
 
-GitHub Actions verifies formatting, vet, normal and race tests, enforces at least 85% statement coverage, builds a static sample, and checks the OCI artifacts. On version-tag pushes, the release workflow validates the layout, builds a Docker image from that verified layout, and publishes it to `ghcr.io/<owner>/<repository>:<tag>` using `GITHUB_TOKEN` and `packages:write`. It also uploads checksums and traceability evidence.
+GitHub Actions verifies formatting, vet, normal and race tests, enforces at least 85% statement coverage, builds a static sample, and checks the OCI artifacts. Every push to `main`, including a merged pull request, creates a GitHub release named `main-<run-number>`. It attaches `secure-oci-base-image.tar`, which can be loaded with `docker load --input secure-oci-base-image.tar`, and `secure-oci-base-reports.zip`, which contains checksums, traceability, validation output, and the verified OCI layout. The workflow also publishes the image to `ghcr.io/<owner>/<repository>:main-<run-number>` using `GITHUB_TOKEN` with `packages:write`.
 
 ### GHCR deployment
 
-Pull the published image with an OCI-capable client or configure your runtime to use `ghcr.io/<owner>/<repository>:latest`. Ensure the deployment supplies the runtime hardening options described above.
+Pull the published image with an OCI-capable client or configure your runtime to use `ghcr.io/<owner>/<repository>:main-<run-number>`. Ensure the deployment supplies the runtime hardening options described above.
 
 ### Artifact deployment
 
-1. Open the workflow run and download `secure-oci-layout`.
-2. Extract it: `unzip secure-oci-layout.zip -d oci-image`.
-3. Inspect `oci-image/index.json`, then verify blobs: `for f in oci-image/blobs/sha256/*; do test "$(sha256sum "$f" | cut -d' ' -f1)" = "$(basename "$f")"; done`.
-4. Import or copy the layout using an OCI-aware runtime/tool appropriate for your environment.
+1. Open the release created for the `main` merge and download `secure-oci-base-image.tar` and `secure-oci-base-reports.zip`.
+2. Load the ready-to-run image: `docker load --input secure-oci-base-image.tar`.
+3. Extract the evidence bundle: `unzip secure-oci-base-reports.zip -d release-reports`.
+4. Inspect `release-reports/checksums.sha256` and `release-reports/release-validation.txt`; the verified OCI layout is at `release-reports/oci-image`.
 
 ## Dockerfile consumer
 
