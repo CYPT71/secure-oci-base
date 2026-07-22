@@ -54,7 +54,13 @@ Supported architectures are `amd64` and `arm64`; the operating system is `linux`
 
 ## Testing and CI/CD
 
-All CI jobs run on the current GitHub-hosted `ubuntu-latest` image, use
+### Threat model and reproducibility boundary
+
+CI treats pull requests, artifacts, registry responses, and generated OCI layouts as untrusted. Validation independently checks layout digests, descriptor sizes, layer paths, and hostile mutations before a runtime test or release step consumes an artifact. Reproducible means that, on the fixed runner image with the pinned Go toolchain, the same revision and build inputs produce identical Linux `amd64` executable and OCI-layout bytes; registry manifests, SBOM/provenance attestations, signatures, and release metadata are deliberately external evidence and are not claimed to be byte-identical.
+
+
+
+All CI jobs run on the fixed GitHub-hosted `ubuntu-24.04` image, use
 read-only repository permissions unless publication requires package access,
 and set an explicit job timeout. Actions are pinned by commit SHA and checked
 by the workflow-policy verifier. The badges above show the status of the

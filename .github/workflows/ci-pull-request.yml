@@ -3,7 +3,7 @@ on: [pull_request]
 permissions: {contents: read}
 jobs:
   policy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       # The policy compares against the PR base SHA; the checkout default of
