@@ -13,7 +13,7 @@ jobs:
       - name: Independently rebuild and compare all bytes
         env: {CGO_ENABLED: '0', GOOS: linux, GOARCH: amd64, GOTOOLCHAIN: local, SOURCE_DATE_EPOCH: '0'}
         run: |
-          set -eu
+          set -euo pipefail
           workdir=$(mktemp -d "${RUNNER_TEMP:-/tmp}/oci-repro.XXXXXX")
           trap 'rm -rf "$workdir"' EXIT
           go build -trimpath -buildvcs=true -o "$workdir/service-a" ./cmd/oci-builder

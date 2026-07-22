@@ -21,27 +21,27 @@ jobs:
       - name: Record hermetic toolchain identity
         env: {GOTOOLCHAIN: local}
         run: |
-          set -eu
+          set -euo pipefail
           go version
           go env GOROOT GOVERSION GOOS GOARCH GOTOOLCHAIN
           test "$(go env GOTOOLCHAIN)" = local
       - name: Format, vet, and test
         env: {GOTOOLCHAIN: local}
         run: |
-          set -eu
+          set -euo pipefail
           test -z "$(find cmd internal -type f -name '*.go' -print0 | xargs -0 gofmt -l)"
           go vet ./...
           go test ./...
       - name: Cross-compile the selected supported target
         env: {CGO_ENABLED: '0', GOOS: linux, GOARCH: '${{ matrix.target }}', GOTOOLCHAIN: local}
         run: |
-          set -eu
+          set -euo pipefail
           go build -trimpath -buildvcs=true ./...
       - name: Race and coverage gate on native target
         if: matrix.target == 'amd64'
         env: {GOTOOLCHAIN: local}
         run: |
-          set -eu
+          set -euo pipefail
           go test -race ./...
           go test ./... -coverprofile=coverage.out
           go tool cover -func=coverage.out | tee coverage.txt

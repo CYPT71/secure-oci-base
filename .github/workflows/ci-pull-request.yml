@@ -12,7 +12,7 @@ jobs:
         with: {fetch-depth: 0}
       - name: Enforce repository and workflow policy
         run: |
-          set -eu
+          set -euo pipefail
           python3 scripts/ci/verify-workflows.py
           test -z "$(git ls-files | grep -E '(^|/)(coverage\.out|coverage\.txt|oci-image|oci-builder|service)$' || true)"
           test -z "$(grep -RInE --exclude=README.md --exclude-dir=.git --exclude-dir=.github 'TODO|FIXME|placeholder' . || true)"

@@ -19,6 +19,12 @@ for workflow in sorted(root.glob("*.y*ml")):
                 errors.append(f"{workflow}: action is not SHA pinned: {value}")
         if re.search(r"\$\{\{\s*github\.event\.pull_request\.(title|body|head\.ref)", line):
             errors.append(f"{workflow}: untrusted PR value interpolated into shell")
+    if "runs-on: ubuntu-latest" not in text:
+        errors.append(f"{workflow}: jobs must use the supported ubuntu-latest runner")
+    if "timeout-minutes:" not in text:
+        errors.append(f"{workflow}: jobs must declare a timeout")
+    if "set -euo pipefail" not in text:
+        errors.append(f"{workflow}: shell steps must enable pipefail")
 if errors:
     print("WORKFLOW_VALIDATION_FAILURE", *errors, sep="\n", file=sys.stderr)
     sys.exit(1)

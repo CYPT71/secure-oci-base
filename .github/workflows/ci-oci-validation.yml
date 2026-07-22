@@ -10,7 +10,7 @@ jobs:
       - name: Build, validate, and emit evidence
         env: {CGO_ENABLED: '0', GOOS: linux, GOARCH: amd64, GOTOOLCHAIN: local}
         run: |
-          set -eu
+          set -euo pipefail
           go build -trimpath -buildvcs=true -o service ./cmd/oci-builder
           go run ./cmd/oci-builder -binary service -output oci-image -arch amd64 -created 1970-01-01T00:00:00Z
           python3 scripts/ci/verify-oci-layout.py oci-image | tee oci-validation.txt
@@ -18,7 +18,7 @@ jobs:
           find oci-image -printf '%m %s %p\n' | LC_ALL=C sort | tee oci-filesystem.txt
       - name: Prove hostile OCI layouts are rejected
         run: |
-          set -eu
+          set -euo pipefail
           python3 scripts/ci/negative-oci-layout.py scripts/ci/verify-oci-layout.py oci-image | tee oci-negative.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()

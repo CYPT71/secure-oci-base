@@ -13,20 +13,20 @@ jobs:
       - name: Run every package test
         env: {GOTOOLCHAIN: local}
         run: |
-          set -eu
+          set -euo pipefail
           go test ./...
           go test -race ./...
       - name: Run explicit CLI, OCI, and mTLS regression tests
         env: {GOTOOLCHAIN: local}
         run: |
-          set -eu
+          set -euo pipefail
           go test ./cmd/oci-builder -run 'TestRunWithoutArgumentsShowsUsage|TestRunArgumentErrors|TestRunBuildsLayout'
           go test ./internal/oci -run 'TestBuildWritesValidLayout|TestBuildRejectsUnsafeInputs|TestBuildErrors|TestNormalizeValidation|TestWriteLayoutErrors'
           go test ./internal/mtls -count=1
       - name: Measure complete test coverage
         env: {GOTOOLCHAIN: local}
         run: |
-          set -eu
+          set -euo pipefail
           go test ./... -coverprofile=coverage.out
           go tool cover -func=coverage.out | tee coverage.txt
           coverage=$(awk '/^total:/ {sub(/%/, "", $3); print $3}' coverage.txt)
@@ -34,7 +34,7 @@ jobs:
       - name: Re-run OCI structural and hostile-layout regressions
         env: {CGO_ENABLED: '0', GOOS: linux, GOARCH: amd64, GOTOOLCHAIN: local}
         run: |
-          set -eu
+          set -euo pipefail
           go build -trimpath -buildvcs=true -o oci-builder ./cmd/oci-builder
           ./oci-builder -binary oci-builder -output oci-image -arch amd64 -created 1970-01-01T00:00:00Z
           python3 scripts/ci/verify-oci-layout.py oci-image

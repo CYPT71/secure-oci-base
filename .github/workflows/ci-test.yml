@@ -14,7 +14,7 @@ jobs:
       - name: Build, execute, and validate supported layouts
         env: {CGO_ENABLED: '0', GOTOOLCHAIN: local}
         run: |
-          set -eu
+          set -euo pipefail
           for arch in amd64 arm64; do
             GOOS=linux GOARCH="$arch" go build -trimpath -buildvcs=true -o "oci-builder-$arch" ./cmd/oci-builder
           done

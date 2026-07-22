@@ -1,8 +1,8 @@
 name: release-evidence
 on:
   push:
-    tags: ['v*']
-permissions: {contents: read, packages: write}
+    branches: [main]
+permissions: {contents: write, packages: write}
 jobs:
   release-candidate:
     runs-on: ubuntu-latest
@@ -12,28 +12,56 @@ jobs:
       - name: Create independently verifiable release evidence
         env: {CGO_ENABLED: '0', GOOS: linux, GOARCH: amd64, GOTOOLCHAIN: local}
         run: |
-          set -eu
+          set -euo pipefail
           go build -trimpath -buildvcs=true -o oci-builder ./cmd/oci-builder
           ./oci-builder -binary oci-builder -output oci-image -arch amd64 -created 1970-01-01T00:00:00Z
           python3 scripts/ci/verify-oci-layout.py oci-image | tee release-validation.txt
           sha256sum oci-builder oci-image/blobs/sha256/* | sort > checksums.sha256
-          printf 'revision=%s\nrun=%s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > traceability.txt
-      - name: Publish an image built from the verified OCI layout to GHCR
+          printf 'revision=%s\nrun=%s\nworkflow=%s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_WORKFLOW" > traceability.txt
+      - name: Build a Docker-loadable image from the verified OCI layout
         env:
-          REGISTRY: ghcr.io
           IMAGE: ghcr.io/${{ github.repository }}
-          TAG: ${{ github.ref_name }}
-          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: main-${{ github.run_number }}
         run: |
-          set -eu
-          echo "$REGISTRY_TOKEN" | docker login "$REGISTRY" --username "${{ github.actor }}" --password-stdin
+          set -euo pipefail
           docker build --pull=false --tag "$IMAGE:$TAG" .
+          docker save --output secure-oci-base-image.tar "$IMAGE:$TAG"
+          sha256sum secure-oci-base-image.tar >> checksums.sha256
+          printf 'docker_image=%s:%s\nload_command=docker load --input secure-oci-base-image.tar\n' "$IMAGE" "$TAG" >> traceability.txt
+      - name: Publish the verified image to GHCR
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE: ghcr.io/${{ github.repository }}
+          TAG: main-${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          echo "$REGISTRY_TOKEN" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
           docker push "$IMAGE:$TAG"
+      - name: Package all validation reports
+        run: |
+          set -euo pipefail
+          mkdir release-reports
+          cp checksums.sha256 release-validation.txt traceability.txt release-reports/
+          cp -a oci-image release-reports/oci-image
+          (cd release-reports && zip -qr ../secure-oci-base-reports.zip .)
+      - name: Create the main-merge GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: main-${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" \
+            --target "$GITHUB_SHA" \
+            --title "Main merge $RELEASE_TAG" \
+            --notes "Automated release for $GITHUB_SHA. Load the attached Docker image with \`docker load --input secure-oci-base-image.tar\`. Validation reports and the verified OCI layout are in secure-oci-base-reports.zip." \
+            secure-oci-base-image.tar secure-oci-base-reports.zip
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-oci-evidence
           path: |
             oci-image
+            secure-oci-base-image.tar
+            secure-oci-base-reports.zip
             checksums.sha256
             release-validation.txt
             traceability.txt

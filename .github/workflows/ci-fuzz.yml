@@ -12,6 +12,6 @@ jobs:
       - name: Fuzz parser and validation boundaries
         env: {GOTOOLCHAIN: local}
         run: |
-          set -eu
+          set -euo pipefail
           go test ./internal/oci -fuzz=FuzzLabelsFromPairs -fuzztime=60s
           go test ./internal/oci -fuzz=FuzzEntrypointValidation -fuzztime=60s

@@ -20,7 +20,7 @@ def fail(message):
 
 def read_regular(path, description):
     try:
-        info = path.lstat()
+        path.lstat()
     except OSError as error:
         fail(f"missing {description}: {error}")
     if not path.is_file() or path.is_symlink():
