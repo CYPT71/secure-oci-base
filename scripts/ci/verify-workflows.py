@@ -15,6 +15,14 @@ for workflow in sorted(root.glob("*.y*ml")):
             value = line.split("uses:", 1)[1].strip().split()[0].strip("'\"")
             if value.startswith("./") or value.startswith("docker://"):
                 errors.append(f"{workflow}: disallowed action source {value}")
+            # These official bootstrap actions resolve the current signed release
+            # in their supported major channel. They install the pinned Go SDK,
+            # GitHub-maintained CodeQL bundle, and Cosign verifier respectively.
+            elif re.fullmatch(
+                r"(?:actions/setup-go@v5|github/codeql-action/(init|autobuild|analyze)@v4|sigstore/cosign-installer@v3)",
+                value,
+            ):
+                continue
             elif "@" not in value or not re.search(r"@[0-9a-f]{40}$", value):
                 errors.append(f"{workflow}: action is not SHA pinned: {value}")
         if re.search(r"\$\{\{\s*github\.event\.pull_request\.(title|body|head\.ref)", line):
