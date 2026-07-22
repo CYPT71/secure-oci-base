@@ -59,6 +59,8 @@ jobs:
           docker buildx build --pull=false --provenance=mode=max --sbom=true --push --iidfile image.digest --tag "$IMAGE:$TAG" .
           digest=$(cat image.digest)
           case "$digest" in sha256:[0-9a-f][0-9a-f]*) ;; *) echo "invalid published digest: $digest" >&2; exit 1;; esac
+          docker buildx imagetools inspect --raw "$IMAGE@$digest" > published-index.json
+          python3 scripts/ci/verify-attestation-index.py published-index.json | tee attestation-validation.txt
           docker pull "$IMAGE@$digest"
           docker save --output secure-oci-base-image.tar "$IMAGE@$digest"
           sha256sum secure-oci-base-image.tar > image-tar.sha256
@@ -71,6 +73,8 @@ jobs:
             image-tar.sha256
             image.digest
             publication-link.txt
+            published-index.json
+            attestation-validation.txt
             verified-layout.tar
           if-no-files-found: error
           retention-days: 90
@@ -104,6 +108,8 @@ jobs:
             image-tar.sha256
             image.digest
             publication-link.txt
+            published-index.json
+            attestation-validation.txt
             verified-layout.tar
             signature-verification.json
           if-no-files-found: error
