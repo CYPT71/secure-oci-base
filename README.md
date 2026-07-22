@@ -1,6 +1,18 @@
 # secure-oci-base
 
-`secure-oci-base` is a Go 1.22+ command that turns one static Linux Go executable into an OCI Image Layout. It uses only the Go standard library: no Docker daemon, BuildKit, Podman, CGO, or OCI Go library is involved in layout generation.
+[![Go quality](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-go-quality.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-go-quality.yml)
+[![OCI validation](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-oci-validation.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-oci-validation.yml)
+[![Pull request policy](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-pull-request.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-pull-request.yml)
+[![Regression suite](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-regression-suite.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-regression-suite.yml)
+[![Reproducibility](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-reproducibility.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-reproducibility.yml)
+[![Runtime integration](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-runtime.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-runtime.yml)
+[![Security analysis](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-security.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-security.yml)
+[![CodeQL analysis](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-codeql.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-codeql.yml)
+[![Integration validation](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-test.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-test.yml)
+[![Fuzz validation](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-fuzz.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-fuzz.yml)
+[![Release evidence](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-release.yml/badge.svg?branch=main)](https://github.com/CYPT71/secure-oci-base/actions/workflows/ci-release.yml)
+
+`secure-oci-base` is a Go 1.24.3 command that turns one static Linux Go executable into an OCI Image Layout. It uses only the Go standard library: no Docker daemon, BuildKit, Podman, CGO, or OCI Go library is involved in layout generation.
 
 ## Architecture and OCI layout
 
@@ -42,6 +54,25 @@ Supported architectures are `amd64` and `arm64`; the operating system is `linux`
 
 ## Testing and CI/CD
 
+All CI jobs run on the current GitHub-hosted `ubuntu-latest` image, use
+read-only repository permissions unless publication requires package access,
+and set an explicit job timeout. Actions are pinned by commit SHA and checked
+by the workflow-policy verifier. The badges above show the status of the
+default branch; open a badge to inspect its run logs and downloadable evidence.
+
+| Workflow | Trigger | Validation and evidence |
+| --- | --- | --- |
+| **Go quality** | Push, pull request, weekly schedule | Records the Go environment; checks formatting, `go vet`, tests, native race detection, 85% coverage, and Linux `amd64`/`arm64` compilation. |
+| **OCI validation** | Push and pull request | Builds a deterministic layout, verifies every descriptor/blob/layer, rejects hostile mutations, and uploads validation, checksum, and filesystem evidence. |
+| **Pull-request policy** | Pull request | Rejects unsafe workflow constructs, unpinned actions, forbidden tracked build output, policy markers, and whitespace errors relative to the PR base. |
+| **Regression suite** | Push and pull request | Executes all package, race, explicit CLI/OCI/mTLS, coverage, OCI structural, and hostile-layout regression tests. |
+| **Reproducibility** | Push, pull request, weekly schedule | Builds the executable and OCI layout twice in isolated temporary directories, compares every byte, and uploads SHA-256 evidence. |
+| **Runtime integration** | Push and pull request | Builds the OCI layout through the multi-stage Docker consumer, exercises it under a restricted runtime, and checks the Kubernetes restricted-runtime manifest contract offline. |
+| **Security analysis** | Push, pull request, weekly schedule | Validates workflow pinning/safety, runs `go vet`, pinned `govulncheck`, and race tests, and rejects risky process-execution or insecure-TLS APIs. |
+| **CodeQL analysis** | Push, pull request, weekly schedule | Creates a Go CodeQL database, analyzes it with the maintained Go query suite, and uploads SARIF evidence. |
+| **Integration validation** | Main push and main-targeted pull request | Produces both supported Linux architecture binaries and verifies an end-to-end `amd64` layout. |
+| **Fuzz validation** | Pull request and weekly schedule | Runs bounded fuzzing against label parsing and entrypoint validation boundaries. |
+| **Release evidence** | Push to `main` (including merges) | Verifies the layout, publishes a BuildKit SBOM/provenance-attested GHCR image, signs it keylessly with GitHub OIDC, and attaches a Docker-loadable tarball plus a reports ZIP. |
 
 Run all checks locally:
 
@@ -53,18 +84,18 @@ go tool cover -func=coverage.out
 go vet ./...
 ```
 
-GitHub Actions verifies formatting, vet, normal and race tests, enforces at least 99% statement coverage, builds a static sample, and checks the OCI artifacts. On pushes to `main`, it attempts to publish the layout to `ghcr.io/<owner>/<repository>:latest` using `GITHUB_TOKEN` and `packages:write`. If publishing is unavailable or fails, it uploads the `secure-oci-layout` artifact and reports the publishing outcome.
+GitHub Actions verifies formatting, vet, normal and race tests, enforces at least 85% statement coverage, builds a static sample, and checks the OCI artifacts. Every push to `main`, including a merged pull request, creates a GitHub release named `main-<run-number>`. It attaches `secure-oci-base-image.tar`, which can be loaded with `docker load --input secure-oci-base-image.tar`, and `secure-oci-base-reports.zip`, which contains checksums, traceability, validation output, and the verified OCI layout. The workflow also publishes the image to `ghcr.io/<owner>/<repository>:main-<run-number>` using `GITHUB_TOKEN` with `packages:write`.
 
 ### GHCR deployment
 
-Pull the published image with an OCI-capable client or configure your runtime to use `ghcr.io/<owner>/<repository>:latest`. Ensure the deployment supplies the runtime hardening options described above.
+Pull the published image with an OCI-capable client or configure your runtime to use `ghcr.io/<owner>/<repository>:main-<run-number>`. Ensure the deployment supplies the runtime hardening options described above.
 
 ### Artifact deployment
 
-1. Open the workflow run and download `secure-oci-layout`.
-2. Extract it: `unzip secure-oci-layout.zip -d oci-image`.
-3. Inspect `oci-image/index.json`, then verify blobs: `for f in oci-image/blobs/sha256/*; do test "$(sha256sum "$f" | cut -d' ' -f1)" = "$(basename "$f")"; done`.
-4. Import or copy the layout using an OCI-aware runtime/tool appropriate for your environment.
+1. Open the release created for the `main` merge and download `secure-oci-base-image.tar` and `secure-oci-base-reports.zip`.
+2. Load the ready-to-run image: `docker load --input secure-oci-base-image.tar`.
+3. Extract the evidence bundle: `unzip secure-oci-base-reports.zip -d release-reports`.
+4. Inspect `release-reports/checksums.sha256` and `release-reports/release-validation.txt`; the verified OCI layout is at `release-reports/oci-image`.
 
 ## Dockerfile consumer
 

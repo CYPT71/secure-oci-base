@@ -1,0 +1,68 @@
+name: runtime-integration
+
+on: [push, pull_request]
+
+permissions: {contents: read}
+
+jobs:
+  docker-and-kubernetes-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Build an OCI layout for runtime validation
+        env: {GOTOOLCHAIN: local}
+        run: |
+          set -euo pipefail
+          scripts/ci/build-verified-layout.sh oci-image oci-builder amd64
+      - name: Build and run the layout through an isolated multi-stage Dockerfile
+        run: |
+          set -euo pipefail
+          context=$(mktemp -d)
+          trap 'rm -rf "$context"' EXIT
+          cp Dockerfile "$context/Dockerfile"
+          cp -a oci-image "$context/oci-image"
+          docker build --pull=false --tag secure-oci-base:functional "$context"
+          # The CLI deliberately returns 2 for flag-help (flag.ErrHelp).  A
+          # successful container execution therefore has an expected non-zero
+          # status; capture it explicitly instead of letting `set -e` treat it
+          # as a runtime failure.
+          if docker run --rm --read-only --cap-drop=ALL --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,noexec,nosuid,size=16m secure-oci-base:functional -h > docker-runtime.txt 2>&1; then
+            echo 'expected oci-builder -h to exit with status 2' >&2
+            exit 1
+          else
+            status=$?
+            test "$status" -eq 2
+          fi
+          cat docker-runtime.txt
+          grep -q -- '-binary' docker-runtime.txt
+      - name: Validate the Kubernetes restricted-runtime manifest contract
+        run: |
+          set -euo pipefail
+          command -v kubectl
+          cat > deployment.json <<'EOF'
+          {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "metadata": {"name": "secure-oci-base-functional", "labels": {"app": "secure-oci-base"}},
+            "spec": {
+              "replicas": 1,
+              "selector": {"matchLabels": {"app": "secure-oci-base"}},
+              "template": {"metadata": {"labels": {"app": "secure-oci-base"}}, "spec": {
+                "automountServiceAccountToken": false,
+                "containers": [{"name": "service", "image": "secure-oci-base:functional", "imagePullPolicy": "Never",
+                  "securityContext": {"runAsNonRoot": true, "runAsUser": 65532, "allowPrivilegeEscalation": false,
+                    "readOnlyRootFilesystem": true, "capabilities": {"drop": ["ALL"]}},
+                  "resources": {"requests": {"cpu": "10m", "memory": "32Mi"}, "limits": {"cpu": "250m", "memory": "128Mi"}}
+                }]
+              }}
+            }
+          }
+          EOF
+          # `kubectl create -f` still performs API discovery, even with
+          # --dry-run=client and --validate=false.  Hosted runners do not have
+          # a Kubernetes API server, so validate the portable manifest
+          # contract locally instead of making a localhost API request.
+          kubectl version --client --output=yaml > kubectl-client-version.yaml
+          python3 -c 'import json; d=json.load(open("deployment.json")); p=d["spec"]["template"]["spec"]; c=p["containers"][0]; assert d["apiVersion"] == "apps/v1" and d["kind"] == "Deployment"; assert p["automountServiceAccountToken"] is False; assert c["imagePullPolicy"] == "Never"; s=c["securityContext"]; assert s["runAsNonRoot"] and s["runAsUser"] == 65532 and not s["allowPrivilegeEscalation"] and s["readOnlyRootFilesystem"] and s["capabilities"]["drop"] == ["ALL"]; assert c["resources"]["requests"] and c["resources"]["limits"]'

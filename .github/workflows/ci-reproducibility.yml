@@ -1,0 +1,27 @@
+name: reproducibility
+on:
+  push:
+  pull_request:
+  schedule: [{cron: '23 4 * * 1'}]
+permissions: {contents: read}
+jobs:
+  byte-for-byte-layout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Independently rebuild and compare all bytes
+        env: {CGO_ENABLED: '0', GOOS: linux, GOARCH: amd64, GOTOOLCHAIN: local, SOURCE_DATE_EPOCH: '0'}
+        run: |
+          set -euo pipefail
+          workdir=$(mktemp -d "${RUNNER_TEMP:-/tmp}/oci-repro.XXXXXX")
+          trap 'rm -rf "$workdir"' EXIT
+          go build -trimpath -buildvcs=true -o "$workdir/service-a" ./cmd/oci-builder
+          go build -trimpath -buildvcs=true -o "$workdir/service-b" ./cmd/oci-builder
+          cmp "$workdir/service-a" "$workdir/service-b"
+          "$workdir/service-a" -binary "$workdir/service-a" -output "$workdir/layout-a" -arch amd64 -created 1970-01-01T00:00:00Z
+          "$workdir/service-b" -binary "$workdir/service-b" -output "$workdir/layout-b" -arch amd64 -created 1970-01-01T00:00:00Z
+          diff --no-dereference -r "$workdir/layout-a" "$workdir/layout-b"
+          find "$workdir/layout-a" -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | tee reproducibility.sha256
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with: {name: reproducibility-evidence, path: reproducibility.sha256, retention-days: 14}

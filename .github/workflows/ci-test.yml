@@ -1,0 +1,22 @@
+name: integration-validation
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+permissions: {contents: read}
+jobs:
+  end-to-end:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Build, execute, and validate supported layouts
+        env: {CGO_ENABLED: '0', GOTOOLCHAIN: local}
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            GOOS=linux GOARCH="$arch" go build -trimpath -buildvcs=true -o "oci-builder-$arch" ./cmd/oci-builder
+          done
+          ./oci-builder-amd64 -binary ./oci-builder-amd64 -output ./oci-image -arch amd64
+          python3 scripts/ci/verify-oci-layout.py oci-image

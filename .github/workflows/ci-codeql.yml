@@ -1,0 +1,24 @@
+name: codeql-analysis
+
+on:
+  push:
+  pull_request:
+  schedule: [{cron: '29 3 * * 1'}]
+
+permissions: {contents: read, security-events: write}
+
+jobs:
+  analyze-go:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Create and analyze the Go CodeQL database
+        env: {GOTOOLCHAIN: local}
+        run: |
+          set -euo pipefail
+          command -v codeql
+          codeql database create codeql-db --language=go --command='go build ./...'
+          codeql database analyze codeql-db codeql/go-queries --format=sarif-latest --output=codeql.sarif
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with: {name: codeql-sarif, path: codeql.sarif, if-no-files-found: error, retention-days: 14}
