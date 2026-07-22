@@ -1,84 +1,140 @@
 name: release-evidence
+
 on:
   push:
-    branches: [main]
-permissions: {contents: write, packages: write, id-token: write}
+    tags: ['v*.*.*']
+
+permissions: {contents: read}
+
 jobs:
-  release-candidate:
+  validate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Install the pinned Go toolchain
         uses: actions/setup-go@v5
         with: {go-version: '1.25.8'}
-      - name: Create independently verifiable release evidence
+      - name: Build and validate the release layout
         env: {GOTOOLCHAIN: local}
         run: |
           set -euo pipefail
           scripts/ci/build-verified-layout.sh oci-image oci-builder amd64 | tee release-validation.txt
-          sha256sum oci-builder oci-image/blobs/sha256/* | sort > checksums.sha256
-          printf 'revision=%s\nrun=%s\nworkflow=%s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_WORKFLOW" > traceability.txt
-      # The Docker daemon's default driver cannot export SBOM/provenance
-      # attestations. Create an isolated BuildKit container driver before build.
+          sha256sum oci-builder oci-image/blobs/sha256/* | sort > layout-checksums.sha256
+          tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner -cf verified-layout.tar oci-image oci-builder layout-checksums.sha256 release-validation.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: verified-release-layout
+          path: verified-layout.tar
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: validate
+    environment: release
+    permissions: {contents: read, packages: write}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with: {name: verified-release-layout}
+      - name: Unpack independently validated layout
+        run: |
+          set -euo pipefail
+          tar -xf verified-layout.tar
+          python3 scripts/ci/verify-oci-layout.py oci-image
       - name: Set up an attestation-capable BuildKit builder
         uses: docker/setup-buildx-action@v3
         with: {driver: docker-container}
-      - name: Publish SBOM and provenance-attested image to GHCR
+      - name: Publish the layout-derived image by digest
         env:
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPOSITORY: ${{ github.repository }}
-          TAG: main-${{ github.run_number }}
+          TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           IMAGE="ghcr.io/$(printf '%s' "$REPOSITORY" | tr '[:upper:]' '[:lower:]')"
           echo "$REGISTRY_TOKEN" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
-          docker buildx build --pull=false --provenance=mode=max --sbom=true --push --tag "$IMAGE:$TAG" .
-          docker pull "$IMAGE:$TAG"
-          docker save --output secure-oci-base-image.tar "$IMAGE:$TAG"
-          sha256sum secure-oci-base-image.tar >> checksums.sha256
-          printf 'docker_image=%s:%s\nload_command=docker load --input secure-oci-base-image.tar\n' "$IMAGE" "$TAG" >> traceability.txt
+          docker buildx build --pull=false --provenance=mode=max --sbom=true --push --iidfile image.digest --tag "$IMAGE:$TAG" .
+          digest=$(cat image.digest)
+          case "$digest" in sha256:[0-9a-f][0-9a-f]*) ;; *) echo "invalid published digest: $digest" >&2; exit 1;; esac
+          docker buildx imagetools inspect --raw "$IMAGE@$digest" > published-index.json
+          python3 scripts/ci/verify-attestation-index.py published-index.json | tee attestation-validation.txt
+          docker pull "$IMAGE@$digest"
+          docker save --output secure-oci-base-image.tar "$IMAGE@$digest"
+          sha256sum secure-oci-base-image.tar > image-tar.sha256
+          printf 'layout_archive_sha256=%s\npublished_image=%s@%s\n' "$(sha256sum verified-layout.tar | cut -d' ' -f1)" "$IMAGE" "$digest" > publication-link.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: published-image-evidence
+          path: |
+            secure-oci-base-image.tar
+            image-tar.sha256
+            image.digest
+            publication-link.txt
+            published-index.json
+            attestation-validation.txt
+            verified-layout.tar
+          if-no-files-found: error
+          retention-days: 90
+
+  sign:
+    needs: publish
+    environment: release
+    permissions: {contents: read, packages: write, id-token: write}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with: {name: published-image-evidence}
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3
         with: {cosign-release: 'v2.4.1'}
-      - name: Sign and verify the published image with GitHub OIDC
+      - name: Sign and verify the immutable image digest
         env:
           REPOSITORY: ${{ github.repository }}
-          TAG: main-${{ github.run_number }}
         run: |
           set -euo pipefail
           IMAGE="ghcr.io/$(printf '%s' "$REPOSITORY" | tr '[:upper:]' '[:lower:]')"
-          command -v cosign
-          cosign sign --yes "$IMAGE:$TAG"
-          cosign verify --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/ci-release.yml@" --certificate-oidc-issuer https://token.actions.githubusercontent.com "$IMAGE:$TAG" | tee signature-verification.json
-      - name: Package all validation reports
-        run: |
-          set -euo pipefail
-          mkdir release-reports
-          cp checksums.sha256 release-validation.txt signature-verification.json traceability.txt release-reports/
-          cp -a oci-image release-reports/oci-image
-          (cd release-reports && zip -qr ../secure-oci-base-reports.zip .)
-      - name: Create the main-merge GitHub release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: main-${{ github.run_number }}
-        run: |
-          set -euo pipefail
-          gh release create "$RELEASE_TAG" \
-            --target "$GITHUB_SHA" \
-            --title "Main merge $RELEASE_TAG" \
-            --notes "Automated release for $GITHUB_SHA. Load the attached Docker image with \`docker load --input secure-oci-base-image.tar\`. Validation reports and the verified OCI layout are in secure-oci-base-reports.zip." \
-            secure-oci-base-image.tar secure-oci-base-reports.zip
+          digest=$(cat image.digest)
+          cosign sign --yes "$IMAGE@$digest"
+          cosign verify --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/ci-release.yml@" --certificate-oidc-issuer https://token.actions.githubusercontent.com "$IMAGE@$digest" | tee signature-verification.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: release-oci-evidence
+          name: signed-release-evidence
           path: |
-            oci-image
             secure-oci-base-image.tar
-            secure-oci-base-reports.zip
-            checksums.sha256
-            release-validation.txt
-            traceability.txt
+            image-tar.sha256
+            image.digest
+            publication-link.txt
+            published-index.json
+            attestation-validation.txt
+            verified-layout.tar
             signature-verification.json
           if-no-files-found: error
           retention-days: 90
+
+  release:
+    needs: sign
+    environment: release
+    permissions: {contents: write}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with: {name: signed-release-evidence}
+      - name: Package auditable release reports
+        run: |
+          set -euo pipefail
+          mkdir release-reports
+          cp image.digest image-tar.sha256 publication-link.txt signature-verification.json verified-layout.tar release-reports/
+          (cd release-reports && zip -qr ../secure-oci-base-reports.zip .)
+      - name: Create immutable semantic-version release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" --verify-tag --generate-notes \
+            secure-oci-base-image.tar secure-oci-base-reports.zip image-tar.sha256 publication-link.txt

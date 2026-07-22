@@ -20,6 +20,7 @@ jobs:
           set -euo pipefail
           for arch in amd64 arm64; do
             GOOS=linux GOARCH="$arch" go build -trimpath -buildvcs=true -o "oci-builder-$arch" ./cmd/oci-builder
+            scripts/ci/verify-elf.sh "oci-builder-$arch" "$arch"
           done
           ./oci-builder-amd64 -binary ./oci-builder-amd64 -output ./oci-image -arch amd64
           python3 scripts/ci/verify-oci-layout.py oci-image

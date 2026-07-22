@@ -12,6 +12,7 @@ binary=$2
 arch=$3
 
 CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -buildvcs=true -o "$binary" ./cmd/oci-builder
+scripts/ci/verify-elf.sh "$binary" "$arch"
 case "$binary" in
   /*) builder="$binary" ;;
   *) builder="./$binary" ;;

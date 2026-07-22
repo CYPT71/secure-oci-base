@@ -39,7 +39,9 @@ jobs:
         env: {CGO_ENABLED: '0', GOOS: linux, GOARCH: '${{ matrix.target }}', GOTOOLCHAIN: local}
         run: |
           set -euo pipefail
-          go build -trimpath -buildvcs=true ./...
+          output="${RUNNER_TEMP:-/tmp}/oci-builder-${{ matrix.target }}"
+          go build -trimpath -buildvcs=true -o "$output" ./cmd/oci-builder
+          scripts/ci/verify-elf.sh "$output" "${{ matrix.target }}"
       - name: Race and coverage gate on native target
         if: matrix.target == 'amd64'
         env: {GOTOOLCHAIN: local}
